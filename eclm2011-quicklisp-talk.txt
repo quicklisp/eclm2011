@@ -1,0 +1,478 @@
+[ This is the script on which I based my ECLM 2011 Quicklisp
+  talk. It's incomplete, and differs from the talk I delivered in many
+  ways. I offer it as-is with the hope that it is interesting even if
+  it's not a word-for-word transcript. - Zach ]
+
+* Quicklisp, technically and socially
+
+Hi everyone, I'm Zach Beane, and my talk is about Quicklisp.
+Quicklisp is a project for downloading and installing Common Lisp
+libraries.
+
+* Or, Solving Common Lisp's Library Problem
+* No, not that Library Problem, the other one
+
+Some people have the impression that the Common Lisp library problem
+is that there aren't any Common Lisp libraries, but in my experience
+that isn't the issue. Getting the libraries, and being able to keep in
+sync with a working set of libraries, was a much bigger problem.
+
+* clbuild, asdf-install, or nothing
+
+Last year, before I released Quicklisp, I did a survey, and many
+people responded that they didn't use anything special to get or
+manage libraries. They just downloaded them manually as needed. More
+people did manual management than used the second and third most
+popular options, asdf-install or clbuild. 
+
+And, to be honest, that's what I did most of the time, and it worked
+ok. Not great, but most of the time, ok.
+
+* Building a nest from scratch
+
+The big problem with manual management was moving from system to
+system. I built up this big, supportive nest of libraries on one
+computer, but then I had to carry it around, whole, to other
+computers, or start grabbing things piecemeal again, as needed, or
+find some other way to build up my nest again.
+
+* Nesting with asdf-install
+
+asdf-install mitigated the issue by taking some of the hassle out of
+locating libraries and following dependency information. Library
+authors could put a special link on cliki.net, and that became as a
+central place to point to their libraries. So if you wanted to install
+the zs3 project, asdf-install looked at cliki.net slash zs3, then used
+a special link there to find out where zs3 was actually located, and
+fetched and installed it.
+
+It could run into a number of issues. 
+
+* "I hated ASDF"
+
+asdf-install's name was a problem. A lot of people, to this day, get
+confused about what asdf-install is and how it relates to asdf.
+Someone told me "I tried common lisp three years ago, but then I tried
+to install something and got all this PGP stuff from ASDF and it
+didn't work."  That PGP stuff is asdf-install, not asdf, but it's a
+confusion I see time and time again.
+
+There were actually two pieces of software called asdf-install,
+and one came with sbcl and was fairly primitive, but it worked out of
+the box on SBCL. Another was something you could download, and it had
+documentation and was nicer, but required extra work to get.
+
+* Incoherence
+
+Coherency could be an issue, where one library got updated but another
+didn't, leading to incompatibility. Sometimes authors tested and
+things got updated together, but it didn't always happen.
+
+* Unavailable
+
+Availability could be another issue. Cliki was a centralized index of
+project archives, but projects were actually scattered across dozens
+of different sites, and if one of those sites was down or unavailable,
+you might be out of luck when trying to get particular library. And
+the unavailability of a library would cast a shadow over the libraries
+that depended on it, and the libraries that depended on them, and so
+on.
+
+And cliki's availability was not so great. It's better now, but for
+several years in a row, for example, the cliki.net domain name would
+expire. The registrar was set up so anyone could pay the fee, not just
+the account holder, and for a couple years I personally paid to renew
+it. But there were periods of total outage where asdf-install was
+pretty much useless.
+
+And for the most part it only worked smoothly if you used Unix and had
+the right tools installed, particularly pgp.
+
+* I could go on and on about asdf-install
+* But I won't
+* I'll go on a bit about clbuild
+
+clbuild had a different approach. Instead of a Lisp program going out
+to cliki to ask "Where do I find project X?" clbuild maintained an
+index of where project X's source could be checked out of version
+control. And it had that kind of information for a few hundred
+projects.
+
+So instead of a Lisp program that would go out to cliki.net, there was
+a shell script that would check out or update projects from version
+control.
+
+This has a real big benefit for people who want to work on the library
+ecosystem as a whole, and send patches to authors, because everything
+is directly in version control.
+
+It does suffer from the coherency problem, and from the availability
+problem. Fetching from dozens of different version control servers can
+be just as fragile as fetching from dozens of different web servers.
+
+* I like both kinds of operating systems...
+* Unix AND Mac OS X!
+
+It also is even more Unix-oriented than asdf-install, because to
+effectively get everything, you need CVS, git, darcs, subversion, and
+a way to run shell scripts.
+
+I didn't use clbuild because a lot of the time I needed libraries, I
+was behind a firewall and couldn't check everything out of version
+control.
+
+* Why I'm picking on them
+
+I'm not just pointing out these problems for fun, it's to put some of
+the design decisions behind Quicklisp in context. Quicklisp wasn't
+developed in a vacuum, it was very much a reaction to what I was
+frustrated with in the existing tools.
+
+Where existing tools could be difficult and confusing to install, I
+wanted to make something easy to install.
+
+Where existing tools only worked on Unix-style systems, I wanted
+something that worked everywhere that CL works. In other words, on
+Windows.
+
+Where existing tools relied on dozens of possibly flaky servers, I
+wanted something that worked from one very, very reliable server.
+
+Where existing tools could be firewall-unfriendly, I wanted something
+that did nearly everything over plain old HTTP.
+
+* Making it easy to install
+
+The first thing, making it easy to install, is a bit boring. 
+
+I really wanted it to be a single file that you could just load and
+that would fetch everything over the network for the next stage of
+installation. 
+
+To do that you can kind of just jam a lot of stuff into the file.
+
+I was going to devise a little pack format to store multiple files,
+but it turns out the tar file format is so easy I could just use it
+directly.
+
+The initial design was intended just for loading the file, but some
+people wanted to compile it first, so that worked fine with just a few
+eval-whens.
+
+* Make it work on multiple Lisps
+* ...WITHOUT #+ or #-
+
+To get a single file that worked on multiple implementations, I tried
+something I haven't seen before. I don't know if that's because I
+don't read enough code, or because it's ultimately a bad idea, or
+what, but here's what I did.
+
+Sharp-plus and sharp-minus are used pretty frequently for conditional
+code. If you want to do something like get the value of an environment
+variable, it's common to support five lisps by having five sharp-plus
+expressions, each with the implementation-specific code to do the
+work.
+
+(defun getenv (name)
+  #+clisp (ext:getenv name)
+  #+sbcl (sb-ext:getenv name))
+
+That's what I've seen most of the time.
+
+With Quicklisp, I do something a little differently. I model the Lisp
+implementation with CLOS, so something like this, so for example SBCL
+is defined by a class. And then, during loading, a special variable is
+initialized to an instance matching the current implementation. 
+
+Then, to implement getenv on SBCL, I write method that takes an
+implementation instance as the first argument and the rest of the
+arguments, and dispatches that way:
+
+ (defmethod getenv ((lisp sbcl) name)
+   (sb-ext:getenv name))
+
+Of course, other implementations don't have that symbol, so there's a
+little bit of indirection:
+
+  (define-implementation-package impl-sbcl
+    (:reexport-from #:sb-ext #:getenv))
+
+  (defmethod getenv ((lisp sbcl) name)
+    (impl-sbcl:getenv name))
+
+That's still a little cumbersome, so it's actually behind a macro.
+
+There are some downsides to this - the package system is a little more
+cluttered with symbols, and there are some extraneous methods.
+
+But this does let someone, completely independently, add Quicklisp
+support to a Common Lisp that I haven't supported, and completely at
+runtime. They just have to define their own class for the new
+implementation, define a handful of methods (XXX how many?), and boom,
+their Lisp now works with Quicklisp without any coordination between
+me and them.
+
+The methods are along the lines of: open and work with a network
+connection, delete a directory, that sort of thing. 
+
+I haven't done support for Scieneer Common Lisp or Corman Lisp, but
+someone could distribute one extra file that adds enough support to
+get it working until I could incorporate the support directly. I don't
+know if that will ever be used, but I hope it will.
+
+* Building a dist
+
+So a dist is a collection of archives, and the metadata. Here's how
+it's all put together.
+
+* Grab and set up the world
+
+I check out, download, or otherwise obtain every single Lisp project I
+know about - they're tracked in the quicklisp-projects repo on
+github.
+
+Depending on the upstream, I take a snapshot as an archive file. So
+for git that means git export, for darcs that means darcs dist, for
+projects that release as a tar file, that means using that tar file
+with some light repackaging.
+
+Everything, from alexandria to zs3, is unpacked into a single
+directory. Right now that's about 700 projects. 
+
+I scan that tree for system files, and use that to compile an index of
+all the systems I want to try to build.
+
+* Watch out for extra copies
+
+This step requires some manual intervention. Primarily because some
+people lump other peoples projects into their own wholesale, and those
+project copies diverge and interfere with the originals. 
+
+For example, there are five system files for uffi across all projects,
+and four for alexandria.
+
+So I maintain some blacklisting info, like "don't use alexandria.asd
+from from the teepeedee2 project".
+
+As an aside, why do people do that? It's meant to help users out by
+shipping a known-good version of a project's dependencies. That makes
+sense in some contexts, it's acting like kind of a batteries-included
+distributor, but if everyone did it, there would be a lot of problems.
+
+Projects can get out of sync as the original project is developed but
+the bundled version isn't, for example. This has already happened with
+the Core-Server project, which has unmerged changes to some of the
+libraries it uses, so it's difficult to incorporate it into Quicklisp.
+
+I hope Quicklisp makes it possible to defer that kind of distribution
+work to Quicklisp instead of to individual project maintainers.
+
+* Build the world
+
+The next step is to actually go through the list of systems and start
+building them. 
+
+I build things by starting a separate SBCL process for each one,
+sequentially and serially. Why separately? 
+
+The main problem is name management. Two projects that use the same
+package name for different things will conflict. For example, CLX and
+CL-OPENGL both define a package named "GLX", but they're not related.
+
+I think memory might be an issue, too, but my build server has a lot
+of memory, so maybe it could work, if everyone gave their projects
+non-conflicting package names.
+
+* Watch carefully
+
+When building the projects, I don't just do a simple load-system. I
+have instrumented ASDF to keep track of what subordinate systems get
+loaded when loading the target system.
+
+At first I thought I could inspect the depends-on list in the
+defsystem form, but a lot of systems have something like (load-system
+cffi-grovel) in them. So because of the indirect ways of loading other
+systems at system definition time, I needed some extra instrumentation
+to get correct dependency info.
+
+* Why bother with accurate dependency info?
+
+I want accurate dependency info calculated up front as much as
+possible because I want the user to be able to get everything they
+need for a project, no more, no less, without having to build it
+first. 
+
+In some cases, like when loading a local project, that can't be done,
+and it has to be done on the fly. But for Quicklisp projects, I think
+it's useful to have the info in advance and make plans about what to
+fetch and install based on it. 
+
+It avoids the situation of downloading and building 15 projects only
+to find that the 16th project, which is the key to everything, is
+unavailable in some way.
+
+* Learning from failure
+
+Sometimes projects don't build. There can be a lot of reasons for
+that.
+
+I build everything in an SBCL that starts up with the debugger
+disabled, and with all standard and error output redirected to a
+file. When a build fails, I check the files to see why.
+
+The most common problem, early on, was that I didn't have a dependency
+needed to build the project. So for example the log might say
+"Component alexandria not found." along with a backtrace.
+
+That was so frequent that now after every build failure I get an exact
+report of any missing systems, so I don't have to look at the logs
+for that.
+
+Another common issue is a missing foreign library. That usually shows
+up as a cffi error that says "Unable to load foolib.so". With that
+error, I can detect the failed library name, and pass it to apt-file
+utility to find out what Debian package might provide the library for
+me, and use that for installation.
+
+Then there are build problems caused by bugs. Since I grab many
+projects from version control, it's quite possible that a project is
+in an inconsistent state, or that the latest commit wasn't fully
+tested, or something like that.
+
+When there seems to be a bug, I reach out to the author and provide
+them with whatever info I can to try to resolve things. I've done this
+dozens of times and authors have always been prompt and helpful, which
+makes life easier.
+
+* Publishing a dist
+
+I try to publish a dist update once per month, currently around the
+end of every month. 
+
+I usually build the world once per day and get an automatic report of
+any problems and successes. That guides my fixes, updates, and bug
+reports between releases. As the end of the month approaches, I try to
+make sure that everything is building together and there aren't any
+loose ends to be fixed.
+
+After a successful build of the world on a release day, I build a dist
+on my local system, including all snapshots I took earlier as the
+project archives, and with the metadata files generated during the
+build process.
+
+Then I go through a process of merging the new dist with the most
+recent published dist. If a project hasn't been updated since the last
+dist, I don't upload a new file for it - I have the new dist just
+point at the old file.
+
+When the merging process is complete, I upload all the new archive
+and metadata files to S3, then I update the master dist index to point
+to the new metadata. Anyone who updates their dist from the Quicklisp
+client at that point, or does a fresh install, will get that month's
+dist.
+
+* Scalability
+
+People often ask me if Quicklisp is too much work. The short answer is
+no, not yet.
+
+The process I described regarding getting and building the world is
+all highly automated. 
+
+Adding a project is a single command that analyzes the URL for the
+project and creates the right type of data files for me.
+
+Updating and building the world is a single command. It's a single
+command that takes an hour to run, but it's a single command.
+
+The most time-consuming part of maintaining the Quicklisp dist is
+watching for failures and following up with project authors. I need to
+streamline that process so I don't have to spend much time finding out
+who an author is and how to report bugs.
+
+Ultimately I need to develop more tools for anyone to use to build
+their own dists, and to give authors automatic information about build
+problems, and make all the tools easier for others to use, but for me,
+right now, keeping Quicklisp up to date is not too much work.
+
+* Quicklisp socially
+
+So I'd like to talk about some of the things I've seen in the year
+since Quicklisp was released.
+
+* Prediction vs reality
+
+When I started working on Quicklisp, I thought it would be one of
+several equally popular choices for installing Lisp libraries. Some
+people would try Quicklisp and use it, others would stick with
+asdf-install or clbuild, and probably other options would spring up.
+
+Instead, it looks like Quicklisp has become much more popular than I
+expected. 
+
+There are about 30 installs per day, and it seems to be the default
+answer whenever someone struggles with getting libraries for
+Lisp. "Just get Quicklisp."
+
+* Effects on users
+
+So first, let me talk about my personal use of Quicklisp, how it's
+changed how I work.
+
+In the past, I used to avoid adding dependencies to projects as much
+as I could. The pain from trying to get them all when setting up a new
+system was a big hassle, and something I avoided. Alexandria, a
+library with a lot of useful things, and fairly simple to install as
+libraries, I avoided to avoid the dependency.
+
+With Quicklisp, I don't really care about how many dependencies I use,
+directly or indirectly. I use Alexandria all the time, even for
+single-file, one-use throwaway projects.
+
+When I get set up on a new system, I can be up and running in a
+productive CL environment in just a few minutes by grabbing a CL
+implementation and Quicklisp, and from there I get slime and I can
+start hacking. (Ok, I also get paredit manually, too.)
+
+
+
+* Effects on library authors
+
+Before Quicklisp, a library author had a few options if they wanted to
+share something.
+
+* Avoid dependencies
+
+Avoid dependencies as much as possible. That might mean making very
+simple libraries for very specific things. That also might mean
+rolling everything in your personal toolbox into the library, adding a
+lot of things into one system that might more naturally be expressed
+in two.
+
+* Bundle up everything
+
+Bundle the dependencies into the library archive. That way you know
+the end user is getting the libraries you tested with. Several
+projects do this.
+
+* Pray
+* Not really, try a library manager
+
+Suggest the user use a library manager, either asdf-install or
+clbuild. But unfortunately, both of those were not trivial to install.
+
+* Get Quicklisp, use ql:quickload
+
+With Quicklisp, the solution is a little simpler. 
+
+Step 1 is get Quicklisp, and Quicklisp is pretty trivial to install
+whether you're on Linux or Windows or whatever, whether you're using
+SBCL or LispWorks or whatever.
+
+Step 2 is, if the library is in Quicklisp already, use quickload to
+load it.
+
+If the library isn't in Quicklisp, unpack it somewhere that ASDF knows
+about, and and then quickload it. Ok, making ASDF know about something
+can be tricky, but it's not too bad.
+
